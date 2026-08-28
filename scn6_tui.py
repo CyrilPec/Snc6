@@ -977,96 +977,83 @@ class SCN6TUI(App):
     # Connection
     # ========================================================
 
-    def connect_driver(self) -> None:
-        if self.driver is not None:
-            self.log_message(
-                "SCN6 driver is already connected."
-            )
-            return
-
-        # Save current UI values first.
-        if not self.save_ini_config():
-            return
-
-        try:
-            self.apply_config_to_driver()
-
-        except Exception as exc:
-            self.log_message(
-                f"ERROR applying configuration: {exc}"
-            )
-            return
-
+def connect_driver(self) -> None:
+    if self.driver is not None:
         self.log_message(
-            "Initializing SCN6..."
+            "SCN6 driver is already connected."
+        )
+        return
+
+    if not self.save_ini_config():
+        return
+
+    try:
+        self.apply_config_to_driver()
+    except Exception as exc:
+        self.log_message(
+            f"ERROR applying configuration: {exc}"
+        )
+        self.set_status(
+            "CONFIGURATION ERROR",
+            "$error",
+        )
+        return
+
+    self.set_status(
+        "INITIALIZING...",
+        "$warning",
+    )
+
+    self.set_communication_state(
+        None,
+        False,
+        0,
+    )
+
+    self.log_message(
+        "Initializing SCN6..."
+    )
+
+    self.log_message(
+        f"Port={self.config.port}, "
+        f"Baud={self.config.baud}, "
+        f"NRT={self.config.nrt}, "
+        f"Reset={self.config.reset}, "
+        f"Automatic={self.config.automatic}"
+    )
+
+    try:
+        self.driver = SCN6Driver()
+
+        history = self.driver.initialize()
+
+        final_result = (
+            history[-1]
+            if history
+            else None
         )
 
+        state = self.driver.communication_state()
+
         self.log_message(
-            f"Port={self.config.port}, "
-            f"Baud={self.config.baud}, "
-            f"NRT={self.config.nrt}, "
-            f"Reset={self.config.reset}, "
-            f"Automatic={self.config.automatic}"
+            f"TMBSCOM state: "
+            f"{tmbs_state_text(state)}"
         )
 
-        try:
-            self.driver = SCN6Driver()
-
-            history = self.driver.initialize()
-
-            final_result = (
-                history[-1]
-                if history
-                else None
-            )
-
-            if not self.driver.initialized:
-                self.log_message(
-                    f"SCN6 initialization failed: "
-                    f"{final_result}"
-                )
-
-                self.close_driver()
-
-                self.set_status(
-                    "CONNECTION FAILED",
-                    "$error",
-                )
-
-                return
-
-            self.driver.refresh_connected_axes()
-
-            connected = [
-                format(axis, "X")
-                for axis in self.active_axes()
-                if self.driver.axes[axis].connected
-            ]
-
-            self.set_status(
-                "CONNECTED",
-                "$success",
+        if not self.driver.initialized:
+            self.log_message(
+                "SCN6 initialization failed."
             )
 
             self.log_message(
-                "TMBS state: "
-                f"{self.driver.communication_state()}"
+                f"Initialization result: "
+                f"{final_result}"
             )
 
-            self.log_message(
-                "Connected axes: "
-                + (
-                    ", ".join(connected)
-                    if connected
-                    else "none"
-                )
-            )
-
-            self.update_status()
-
-        except Exception as exc:
-            self.log_message(
-                f"ERROR connecting to SCN6: {exc}"
+            self.set_communication_state(
+                state,
+                False,
+                0,
             )
 
             self.close_driver()
@@ -1075,6 +1062,67 @@ class SCN6TUI(App):
                 "CONNECTION FAILED",
                 "$error",
             )
+
+            return
+
+        self.driver.refresh_connected_axes()
+
+        connected = [
+            axis
+            for axis in self.active_axes()
+            if self.driver.axes[axis].connected
+        ]
+
+        connected_names = [
+            format(axis, "X")
+            for axis in connected
+        ]
+
+        self.set_communication_state(
+            state,
+            state == TMBS_RUNNING,
+            len(connected),
+        )
+
+        self.set_status(
+            "CONNECTED",
+            "$success",
+        )
+
+        self.log_message(
+            "TMBSCOM: "
+            f"{tmbs_state_text(state)}"
+        )
+
+        self.log_message(
+            "Connected axes: "
+            + (
+                ", ".join(connected_names)
+                if connected_names
+                else "none"
+            )
+        )
+
+        self.update_status()
+
+    except Exception as exc:
+        self.log_message(
+            f"ERROR connecting to SCN6: {exc}"
+        )
+
+        self.close_driver()
+
+        self.set_communication_state(
+            None,
+            False,
+            0,
+        )
+
+        self.set_status(
+            "CONNECTION FAILED",
+            "$error",
+        )
+
 
     def close_driver(self) -> None:
         if self.driver is None:
@@ -1103,6 +1151,12 @@ class SCN6TUI(App):
             "DISCONNECTED",
             "$warning",
         )
+        
+        self.set_communication_state(
+             None,
+             False,
+             0,
+        )
 
         for axis in range(16):
             self.update_axis_row(
@@ -1118,55 +1172,181 @@ class SCN6TUI(App):
     # ========================================================
     # Live status
     # ========================================================
+def set_communication_state(
+    self,
+    state,
+    controller_online: bool,
+    axis_count: int = 0,
+    ) -> None:
+    comm = self.query_one(
+        "#comm_state",
+        Static,
+    )
 
-    def update_status(self) -> None:
-        driver = self.driver
+    controller = self.query_one(
+        "#controller_state",
+        Static,
+    )
 
-        if driver is None:
-            return
+    axes = self.query_one(
+        "#axis_count",
+        Static,
+    )
 
-        if not driver.initialized:
-            return
+    comm.update(
+        f"TMBSCOM: {tmbs_state_text(state)}"
+    )
 
-        try:
-            driver.refresh_connected_axes()
+    axes.update(
+        f"AXES: {axis_count}"
+    )
 
-            for axis in self.active_axes():
+    if controller_online:
+        controller.update(
+            "CONTROLLER: ONLINE"
+        )
+        controller.styles.color = "$success"
+        comm.styles.color = "$success"
+    else:
+        controller.update(
+            "CONTROLLER: OFFLINE"
+        )
+        controller.styles.color = "$error"
+        comm.styles.color = "$error"
 
-                if not driver.axes[axis].connected:
-                    self.update_axis_row(
-                        axis,
-                        None,
-                        None,
-                    )
-                    continue
+    
 
-                status = driver.read_axis_status(
-                    axis
-                )
+        def update_status(self) -> None:
+    driver = self.driver
 
-                position = None
+    if driver is None:
+        return
 
-                if status is not None:
-                    position, error = (
-                        driver.read_controller_position(
-                            axis
-                        )
-                    )
+    if not driver.initialized:
+        self.set_communication_state(
+            None,
+            False,
+            0,
+        )
+        return
 
-                    if error:
-                        position = None
+    try:
+        state = driver.communication_state()
 
+        self.log_message(
+            f"TMBSCOM state: "
+            f"{tmbs_state_text(state)}"
+        )
+
+        if state != TMBS_RUNNING:
+            self.set_status(
+                "COMMUNICATION LOST",
+                "$error",
+            )
+
+            self.set_communication_state(
+                state,
+                False,
+                0,
+            )
+
+            for axis in range(16):
                 self.update_axis_row(
                     axis,
-                    status,
-                    position,
+                    None,
+                    None,
                 )
 
-        except Exception as exc:
-            self.log_message(
-                f"Status update error: {exc}"
+            return
+
+        result = driver.refresh_connected_axes()
+
+        if result != scn6_dll.SIO_DONE:
+            self.set_status(
+                "AXIS DISCOVERY ERROR",
+                "$error",
             )
+
+            self.set_communication_state(
+                state,
+                False,
+                0,
+            )
+
+            return
+
+        connected_axes = [
+            axis
+            for axis in self.active_axes()
+            if driver.axes[axis].connected
+        ]
+
+        self.set_communication_state(
+            state,
+            True,
+            len(connected_axes),
+        )
+
+        self.set_status(
+            "CONNECTED",
+            "$success",
+        )
+
+        for axis in self.active_axes():
+
+            if not driver.axes[axis].connected:
+                self.update_axis_row(
+                    axis,
+                    None,
+                    None,
+                )
+                continue
+
+            status = driver.read_axis_status(
+                axis
+            )
+
+            position = None
+
+            if status is not None:
+                position, error = (
+                    driver.read_controller_position(
+                        axis
+                    )
+                )
+
+                if error:
+                    position = None
+
+            self.update_axis_row(
+                axis,
+                status,
+                position,
+            )
+
+    except Exception as exc:
+        self.log_message(
+            f"COMMUNICATION ERROR: {exc}"
+        )
+
+        self.set_status(
+            "COMMUNICATION LOST",
+            "$error",
+        )
+
+        self.set_communication_state(
+            None,
+            False,
+            0,
+        )
+
+        for axis in range(16):
+            self.update_axis_row(
+                axis,
+                None,
+                None,
+            )
+
 
     # ========================================================
     # Motion safety
@@ -1654,6 +1834,34 @@ class SCN6TUI(App):
     def action_quit(self) -> None:
         self.exit()
 
+# ============================================================
+# TMBSCOM state display
+# ============================================================
+
+TMBS_RUNNING = 4
+
+TMBS_STATE_NAMES = {
+    -12: "COM OPEN FAILURE",
+    2: "INIT ERROR",
+    3: "OPENING",
+    4: "RUNNING",
+}
+
+def tmbs_state_text(state) -> str:
+    if state is None:
+        return "UNKNOWN"
+
+    try:
+        state = int(state)
+    except (TypeError, ValueError):
+        return str(state)
+
+    name = TMBS_STATE_NAMES.get(
+        state,
+        f"UNKNOWN({state})",
+    )
+
+    return f"{name} ({state})"
 
 # ============================================================
 # Main
