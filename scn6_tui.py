@@ -304,7 +304,7 @@ class SCN6TUI(App):
 
                     yield Button(
                         "RELOAD INI",
-                        id="reload_ini",
+                        id="reload_ini", hi
                     )
 
                     yield Button(
@@ -977,7 +977,7 @@ class SCN6TUI(App):
     # Connection
     # ========================================================
 
-def connect_driver(self) -> None:
+    def connect_driver(self) -> None:
     if self.driver is not None:
         self.log_message(
             "SCN6 driver is already connected."
