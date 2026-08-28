@@ -24,8 +24,7 @@ command: py -3.12-32
 
 TUI:
 
-Textual
-scn6_tui.py remains the single-file operator interface
+TUI is an interface, not a motion-control layer. No hardware/DLL calls from TUI modules.
 
 DLL:
 
