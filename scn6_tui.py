@@ -304,7 +304,7 @@ class SCN6TUI(App):
 
                     yield Button(
                         "RELOAD INI",
-                        id="reload_ini", hi
+                        id="reload_ini",
                     )
 
                     yield Button(
