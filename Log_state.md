@@ -453,16 +453,89 @@ Do not change:
 - Termi-BUS protocol assumptions
 - proven v20.1 functionality
 
-## NEXT STEPS
+TUI Improvement Priority
+Confirmed baseline
+SCN6 initialization is working.
+Previous TMBS_OPENING (3) observation was caused by a loose USB cable.
+Do not treat that observation as an initialization software fault.
+CLI is the engineering/reference interface.
+TUI should use the same proven SCN6 driver operations as CLI.
+Priority order
 
-1. Fix initialization polling.
-2. Test v21 on COM6.
-3. Confirm axis 0.
-4. Confirm status.
-5. Confirm servo_on/off.
-6. Confirm move_inc.
-7. Confirm memory APIs.
-8. Build multi-axis abstraction.
-9. Implement Q1/Q2/Q3 execution.
-10. Build TUI.
-11. Build Mach3/LinuxCNC interface.
+Verify TUI uses the same proven driver operations as CLI
+
+Initialization
+Axis discovery
+Servo ON/OFF
+Status
+Position
+Motion
+Memory/parameter/point operations
+
+Connection and initialization indication
+
+COM/USB connection state
+TMBSCOM state
+SCN6 online/offline state
+Clear indication of communication failure
+Do not misinterpret physical communication problems as software initialization faults
+
+Motion safety
+
+Explicit confirmation before movement
+Clear selected axis
+Servo state visible before movement
+Increment/distance clearly displayed
+Safe handling of communication loss
+
+Real-time axis/status display
+
+Position
+Servo state
+Controller status
+Alarm/error state
+Selected axis
+Motion state
+
+Diagnostics screen
+
+COM port
+TMBSCOM state
+DLL state
+Initialization state
+Axis availability
+Last operation/result
+
+Operation/event log
+
+Timestamped operations
+Initialization events
+Servo operations
+Motion commands
+Errors/results
+Communication state changes
+
+Advanced TUI functions
+
+SVMEM
+Parameters
+Points
+Execution/Q1/Q2/Q3
+
+TUI code refactoring
+
+Reduce duplication
+Separate screens/widgets/state
+Keep SCN6 communication logic in the common driver
+Refactor incrementally without breaking working functionality
+
+Q1/Q2/Q3 operator interface
+
+Add after the underlying TUI and driver functionality is stable.
+Development principle
+
+CLI = engineering/test interface.
+
+TUI = operator interface.
+
+Both must use the same proven SCN6 driver functionality. Any new SCN6 operation should first be proven through the driver/CLI and then exposed safely through the TUI.
