@@ -21,21 +21,7 @@ class ConnectionMixin:
         try:
             self.driver = SCN6Driver()
 
-            # TMBSCOM initialization can be asynchronous.
-            # The first call may return 0 / TMBS_OPENING.
             history = self.driver.initialize()
-
-            if not self.driver.initialized:
-                self.log_message(
-                    f"SCN6 still initializing: "
-                    f"{history[-1] if history else None}"
-                )
-
-                # Second call completes initialization on this DLL.
-                history2 = self.driver.initialize()
-
-                if history2:
-                    history.extend(history2)
 
             if not self.driver.initialized:
                 self.log_message(
@@ -61,6 +47,7 @@ class ConnectionMixin:
             self.log_message(
                 f"TMBSCOM state: {state} ({status_name(state)})"
             )
+
             self.log_message(
                 "Connected axes: "
                 + (", ".join(connected) if connected else "none")

@@ -66,7 +66,21 @@ class SCN6TUI(TUIWidgetsMixin, ConnectionMixin, StatusMixin, MotionMixin, App):
             self.request_confirmation(f"HOME axis {self.selected_axis():X}?\n\nHoming can physically move the actuator.",
                                       self.home_axis)
 
-    def action_quit(self): self.exit()
+    def action_quit(self) -> None:
+        """Cleanly disconnect SCN6 before exiting the TUI."""
+        try:
+            self.close_driver()
+        except Exception as exc:
+            self.log_message(f"Error during shutdown: {exc}")
+        finally:
+            self.exit()
+    def on_unmount(self) -> None:
+        """Ensure the SCN6 driver is closed when the TUI unmounts."""
+        try:
+            self.close_driver()
+        except Exception:
+            pass
+
     def action_refresh(self): self.update_status()
     def action_connect(self): self.connect_driver()
     def action_servo_on(self):
