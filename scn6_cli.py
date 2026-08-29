@@ -1,4 +1,3 @@
-from scn6_config import load_config
 """SCN6 command-line interface.  No DLL calls are defined here."""
 import ctypes
 import os
@@ -1582,7 +1581,7 @@ def main():
         print("ERROR: Tmbscom.DLL is Win32. Run with 32-bit Python.")
         return 1
     try:
-        controller = SCN6Driver(config=load_config())
+        controller = SCN6Driver()
     except Exception as error:
         print(f"ERROR loading Tmbscom.DLL: {error}")
         return 1
