@@ -1,49 +1,709 @@
 SCN6 PROJECT — DEVELOPMENT STATE
 
-Last updated: 2026-08-28
+Last updated: 2026-08-29
 
-CURRENT VERSION
+1. Current Version
 
-v22 — Textual TUI development and INI integration.
+v22 — Textual TUI and configuration integration
 
-HARDWARE
+v22 is under active development.
 
-Controller:
+The project currently has:
 
-SCN6
-currently testing axis 0
-target range: axes 0..F
-RS485 / Termi-BUS
-current Windows COM port: COM6
-SOFTWARE
+SCN6/TMBSCOM DLL driver
+command-line engineering/test interface
+thin public SCN6Driver facade
+modular Textual TUI
+INI configuration loader
+multi-axis driver foundation
+TMBSCOM memory API discovery
 
-Python:
+v22 is not yet hardware-ready.
 
-Python 3.12 32-bit
-command: py -3.12-32
+2. Hardware
+Controller: SCN6
+Current test axis: 0
+Target axes: 0..F
+Communication: RS485 / Termi-BUS
+Current Windows COM port: COM6
+DLL: Tmbscom.DLL
+Required Python: 3.12 32-bit
+Python command:
+py -3.12-32
 
-TUI:
-
-TUI is an interface, not a motion-control layer. No hardware/DLL calls from TUI modules.
-
-DLL:
-
-Tmbscom.DLL
-accessed directly through the existing Python binding
-ARCHITECTURE
+3. Architecture
 Scn6.ini
     ↓
 scn6_config.py
     ↓
 SCN6Config
     ↓
-scn6_tui.py
-    ↓
 SCN6Driver
     ↓
-TmbsSCOM DLL
+scn6_dll.py
+    ↓
+Tmbscom.DLL
     ↓
 Termi-BUS / RS485
+    ↓
+SCN6 controller
+
+
+CLI and TUI are interfaces over the same driver.
+
+CLI ──┐
+      ├──> SCN6Driver ──> Tmbscom.DLL
+TUI ──┘
+
+Architecture rules
+CLI is the engineering/reference interface.
+TUI is the operator interface.
+Hardware communication remains in scn6_dll.py.
+scn6_driver.py remains the public driver facade.
+TUI modules must not construct raw Termi-BUS frames.
+Do not replace tested DLL operations with manually constructed serial frames.
+New hardware functionality should first be proven through the driver/CLI and then exposed through the TUI.
+4. Current Python Files
+scn6_dll.py
+
+This is the main TMBSCOM DLL binding and hardware-control layer.
+
+Currently provides:
+
+DLL loading
+TMBSCOM function binding
+communication state
+axis discovery
+axis status
+position readback
+servo ON/OFF
+incremental movement
+absolute movement
+homing
+alarm reset
+SVMEM access
+parameter access
+point access
+prepared motion
+multi-axis fallback execution
+motion completion monitoring
+
+import time is present.
+
+Initialization status
+
+Current implementation contains an initialization loop, but it is not yet compliant with the required polling behavior.
+
+Current code:
+
+loops up to 200 times
+uses 0.05 seconds while state is TMBS_OPENING
+uses 0.01 seconds otherwise
+requires both result == SIO_DONE and state 4
+
+The required behavior is:
+
+init_tmbs_config()
+       ↓
+read communication state
+       ↓
+if state == 4:
+    initialization successful
+       ↓
+otherwise wait approximately 5 ms
+       ↓
+poll again
+
+
+An initial:
+
+result = 0
+state  = 3
+
+
+must not automatically be treated as a fatal initialization error.
+
+Required initialization change
+
+Use approximately:
+
+POLL_DELAY = 0.005
+MAX_POLLS  = 200
+
+
+Initialization success must be based on:
+
+communication state == 4
+
+
+Do not introduce undefined constants such as:
+
+TMBS_RUNNING
+TMBS_ERROR
+TMBS_CLOSED
+
+
+because those named constants are not currently defined.
+
+The existing state table is:
+
+-1  SIO_COMUSED
+-2  SIO_TIMEOUT
+-5  SIO_INVALID_PARAM
+-6  SIO_NOTSUPORT_TO
+-8  SIO_NOTSUPORT_BAUD
+-9  SIO_NOTSUPORT_PARA
+-10 SIO_NO_CONFIGFILE
+-12 TMBS_INIT_ERROR / COM OPEN FAILURE
+ 2  TMBS_INIT_ERROR
+ 3  TMBS_OPENING
+ 4  TMBS_RUNNING
+
+5. Initialization Hardware Note
+
+A previous TMBS_OPENING (3) observation was determined to be caused by a loose USB cable.
+
+Therefore:
+
+physical communication problems must not automatically be classified as software initialization failures
+USB/COM connection must be checked before diagnosing the polling implementation
+successful Python execution does not prove hardware initialization
+
+The polling implementation still needs to be corrected and tested according to the TMBSCOM behavior.
+
+6. scn6_driver.py
+
+scn6_driver.py is intentionally thin.
+
+Current public facade:
+
+SCN6Driver
+    axis_status()
+    axis_position()
+    connected_axes()
+    prepare_absolute()
+    prepare_incremental()
+    execute_prepared()
+
+
+It inherits the hardware implementation from TmbsController.
+
+The facade should remain the stable interface for:
+
+CLI
+TUI
+future Mach3 interface
+future LinuxCNC interface
+7. Configuration
+scn6_config.py
+
+Provides:
+
+SCN6Config
+load_config()
+
+
+Configuration fields:
+
+communication.port
+communication.baud
+communication.nrt
+communication.reset
+communication.automatic
+
+driver.axis_min
+driver.axis_max
+
+
+Axis range is interpreted as hexadecimal and must remain within:
+
+0..F
+
+Current problem
+
+The configuration loader exists, but configuration is not yet correctly propagated into the driver initialization path.
+
+scn6_cli.py currently calls:
+
+SCN6Driver(config=load_config())
+
+
+but the current SCN6Driver / TmbsController constructor does not accept a config argument.
+
+Therefore configuration integration is not complete.
+
+Required next change
+
+The driver must accept SCN6Config and use:
+
+port
+baud
+nrt
+reset
+automatic
+
+
+when calling the existing TMBSCOM initialization function.
+
+Do not create a second hardware interface.
+
+8. Scn6.ini
+
+Scn6.ini is the intended project configuration file.
+
+It must control:
+
+COM port
+baud
+NRT
+RESET
+AUTOMATIC
+axis_min
+axis_max
+
+
+The configuration must be applied by the common driver used by both CLI and TUI.
+
+9. CLI
+
+scn6_cli.py is the engineering and hardware-test interface.
+
+Current command groups include:
+
+Connection / diagnostics
+init
+axes
+diag
+exports
+
+Status / position
+status <axis>
+status_all
+position <axis>
+pos <axis>
+read_status_memory <axis>
+
+Direct motion
+move_inc <axis> <distance> CONFIRM
+move_abs <axis> <position> CONFIRM
+
+Servo / safety
+servo_on <axis> CONFIRM
+servo_off <axis> CONFIRM
+alarm_reset <axis> CONFIRM
+home <axis> <mode> CONFIRM
+
+Prepared motion
+prepare_abs <axis> <position>
+prepare_inc <axis> <distance>
+show_buffer
+clear_buffer
+start_all CONFIRM
+
+Memory
+read_svmem
+write_svmem
+read_param
+write_param
+read_point
+write_point
+load_param
+save_param
+save_point
+reset_memory
+select_svparm
+write_trqlim
+
+Current CLI problem
+
+The CLI currently attempts:
+
+SCN6Driver(config=load_config())
+
+
+while the driver constructor currently accepts no configuration argument.
+
+This must be fixed before configuration integration can be considered complete.
+
+10. CLI Priority
+
+CLI remains the engineering/reference interface.
+
+Required order:
+
+Fix initialization polling.
+Fix configuration propagation.
+Test initialization on COM6.
+Confirm axis 0 discovery.
+Confirm axis 0 status.
+Confirm position readback.
+Confirm servo ON.
+Confirm servo OFF.
+Confirm incremental movement.
+Confirm absolute movement.
+Confirm homing.
+Confirm alarm reset.
+Verify memory APIs.
+Only then continue with multi-axis synchronization.
+
+Do not add unnecessary new motion functionality before these tests are complete.
+
+11. Baseline Hardware Test
+
+The established baseline is:
+
+init
+axes
+status 0
+servo_on 0 CONFIRM
+move_inc 0 -1000 CONFIRM
+status 0
+servo_off 0 CONFIRM
+
+
+For absolute movement:
+
+move_abs 0 <position> CONFIRM
+
+
+All physical operations require explicit confirmation.
+
+12. Known Working Functionality
+
+Previously established functionality:
+
+servo ON
+servo OFF
+incremental movement
+status
+position
+axis discovery
+all-axis status
+TMBSCOM DLL initialization path
+memory API discovery
+direct DLL motion functions
+
+These are considered software-level working functionality.
+
+They are not automatically considered hardware-verified after code changes.
+
+13. Verification Rule
+
+A feature is:
+
+Implemented
+
+when the software interface exists.
+
+A feature is:
+
+Verified
+
+only after it has been tested against the real SCN6 controller.
+
+Do not mark the following verified from Python execution alone:
+
+initialization
+physical movement
+homing
+servo operation
+alarm reset
+multi-axis synchronization
+14. TUI
+
+The current TUI is a modular Textual application under:
+
+Tui/
+├── __init__.py
+├── README.md
+├── app.py
+├── confirm.py
+├── connection.py
+├── motion.py
+├── run_tui.py
+├── status.py
+└── ui.py
+
+
+The TUI is intended to provide:
+
+connection
+configuration
+live axis status
+position
+servo control
+incremental movement
+absolute movement
+homing
+alarm reset
+confirmation dialogs
+operator log
+diagnostics
+
+The TUI must use the same SCN6Driver operations as the CLI.
+
+15. TUI Launcher Problem
+
+Current Tui/run_tui.py contains:
+
+from scn6_tui_v2.app import SCN6TUI
+
+
+but the repository currently contains:
+
+Tui/app.py
+
+
+rather than:
+
+Tui/scn6_tui_v2/app.py
+
+
+Therefore the launcher is currently inconsistent with the actual repository structure.
+
+Required fix
+
+The launcher should import the actual TUI package/module structure.
+
+Do not create a second TUI implementation just to satisfy the launcher.
+
+16. TUI Connection
+
+Tui/connection.py correctly uses:
+
+SCN6Driver
+
+
+for hardware ownership.
+
+The connection flow is:
+
+CONNECT
+   ↓
+SCN6Driver()
+   ↓
+driver.initialize()
+   ↓
+refresh_connected_axes()
+   ↓
+display TMBSCOM state
+   ↓
+display connected axes
+
+
+However, because configuration is not yet correctly passed into the driver, the TUI configuration path is not yet complete.
+
+17. TUI Safety
+
+Physical operations require confirmation.
+
+The TUI must show:
+
+selected axis
+operation
+movement distance/position
+servo state where relevant
+explicit confirmation
+
+The TUI must not bypass driver safety checks.
+
+18. Memory API
+
+Previously discovered TMBSCOM APIs:
+
+reset_memory
+read_svmem
+write_svmem
+read_param
+write_param
+read_point
+write_point
+load_param
+save_param
+save_point
+select_svparm
+write_trqlim
+
+
+These APIs should be verified against the real controller before being considered hardware-verified.
+
+19. Q1 / Q2 / Q3
+
+Q1/Q2/Q3 are documented memory/execution mechanisms.
+
+Current rule:
+
+use actual TMBSCOM APIs where available
+do not invent raw Termi-BUS frames
+verify behavior against EE06426I-EN and the TMBSCOM documentation
+
+True synchronized multi-axis execution is not yet verified.
+
+The current prepared-motion implementation dispatches DLL movement commands rapidly in sequence.
+
+It is explicitly not hardware-synchronized.
+
+20. Multi-Axis Goal
+
+Target:
+
+0..F
+
+
+Every axis should eventually support:
+
+status
+position
+servo control
+parameter read
+parameter write where supported
+motion preparation
+physical movement
+alarm handling
+
+Then implement documented synchronized/all-axis execution.
+
+Two SCN6 controllers may share the RS485 bus, but their axis addresses must remain unique.
+
+21. Current Tasks
+Immediate
+Correct scn6_dll.py initialization polling.
+Use approximately 5 ms polling delay.
+Treat TMBS_RUNNING (4) as initialization completion.
+Do not require the intermediate result to be SIO_DONE.
+Test initialization on COM6.
+Confirm axis 0.
+Next
+Fix SCN6Config propagation into SCN6Driver.
+Verify Scn6.ini values are actually used.
+Verify CLI initialization output.
+Verify axis 0 status.
+Verify position.
+Verify servo ON/OFF.
+Verify incremental movement.
+Verify absolute movement.
+Verify homing.
+Verify alarm reset.
+Fix Tui/run_tui.py package import.
+Test TUI connection using the same driver as CLI.
+Test TUI status.
+Test TUI motion controls.
+Later
+Verify memory APIs.
+Build multi-axis abstraction.
+Verify Q1/Q2/Q3 documentation/API.
+Implement real synchronized execution.
+Add multi-axis TUI controls.
+Develop Mach3 interface.
+Develop LinuxCNC interface.
+22. Do Not Change
+
+Do not change without hardware or documentation justification:
+
+working DLL bindings
+tested motion functions
+axis numbering
+Termi-BUS protocol assumptions
+TMBSCOM API semantics
+established safety checks
+
+Do not replace tested DLL calls with raw serial protocol code.
+
+Do not turn the TUI into a replacement hardware-control layer.
+
+23. Development Principle
+CLI = engineering / test interface
+
+TUI = operator interface
+
+Both
+  ↓
+SCN6Driver
+  ↓
+Tmbscom.DLL
+  ↓
+SCN6
+
+
+Any new SCN6 hardware operation should first be proven through the common driver/CLI and then exposed safely through the TUI.
+
+24. Next Milestones
+v22 — TUI and configuration
+
+Required before declaring v22 hardware-ready:
+
+correct initialization polling
+successful COM6 initialization
+correct Scn6.ini loading
+configuration applied to the driver
+axis 0 discovery
+axis 0 status
+position
+servo ON/OFF
+incremental movement
+absolute movement
+safe disconnect
+working TUI launcher
+no CLI/driver regression
+v23 — Multi-axis
+
+Focus:
+
+axes 0..F
+prepared motion
+documented synchronized execution
+Q1/Q2/Q3 verification
+operator controls
+Future
+SVMEM editor
+parameter editor
+point editor
+multi-axis motion editor
+Mach3 interface
+LinuxCNC interface
+25. Current Status Summary
+Area	Status
+DLL binding	Working
+import time	Present
+Driver facade	Working
+CLI command framework	Working
+Direct motion API	Existing/working
+Axis 0 target	Defined
+Initialization polling	Needs correction
+5 ms polling	Not yet applied on current main
+INI loader	Implemented
+INI → driver	Not complete
+CLI config construction	Currently incompatible with driver constructor
+TUI modules	Present
+TUI driver architecture	Correct direction
+TUI launcher	Import path currently wrong
+Memory API discovery	Done
+Multi-axis preparation	Implemented
+Hardware synchronization	Not verified / not implemented
+Q1/Q2/Q3	Documentation/API verification pending
+v22 hardware-ready	No
+26. Immediate Action
+
+Do not start Q1/Q2/Q3 or multi-axis synchronization yet.
+
+The next code changes should be limited to:
+
+1. scn6_dll.py
+   → correct initialization polling
+
+2. scn6_driver.py / scn6_dll.py
+   → accept and apply SCN6Config
+
+3. scn6_cli.py
+   → use the corrected configuration/driver path
+
+4. Tui/run_tui.py
+   → correct launcher import
+
+5. Hardware test on COM6
+
+
+After those are stable, continue with the TUI hardware verification.Termi-BUS / RS485
     ↓
 SCN6
 
