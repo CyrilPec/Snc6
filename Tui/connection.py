@@ -12,29 +12,67 @@ class ConnectionMixin:
         if self.driver is not None:
             self.log_message("Driver is already connected.")
             return
+
         port = self.query_one("#port").value.strip()
         baud = self.query_one("#baud").value.strip()
+
         self.log_message(f"Connecting to SCN6 on {port} @ {baud}...")
+
         try:
-            # Hardware/DLL ownership remains in SCN6Driver.
             self.driver = SCN6Driver()
+
+            # TMBSCOM initialization can be asynchronous.
+            # The first call may return 0 / TMBS_OPENING.
             history = self.driver.initialize()
+
             if not self.driver.initialized:
-                self.log_message(f"SCN6 initialization failed: {history[-1] if history else None}")
+                self.log_message(
+                    f"SCN6 still initializing: "
+                    f"{history[-1] if history else None}"
+                )
+
+                # Second call completes initialization on this DLL.
+                history2 = self.driver.initialize()
+
+                if history2:
+                    history.extend(history2)
+
+            if not self.driver.initialized:
+                self.log_message(
+                    f"SCN6 initialization failed: "
+                    f"{history[-1] if history else None}"
+                )
                 self.driver = None
-                self.set_status("Connection failed", "$error")
+                self.set_status("Connection failed", "red")
                 return
+
             self.driver.refresh_connected_axes()
-            connected = [axis_name(a) for a in AXIS_NUMBERS if self.driver.axes[a].connected]
+
+            connected = [
+                axis_name(a)
+                for a in AXIS_NUMBERS
+                if self.driver.axes[a].connected
+            ]
+
             state = self.driver.communication_state()
-            self.set_status("CONNECTED", "$success")
-            self.log_message(f"TMBSCOM state: {state} ({status_name(state)})")
-            self.log_message("Connected axes: " + (", ".join(connected) if connected else "none"))
+
+            self.set_status("CONNECTED", "green")
+
+            self.log_message(
+                f"TMBSCOM state: {state} ({status_name(state)})"
+            )
+            self.log_message(
+                "Connected axes: "
+                + (", ".join(connected) if connected else "none")
+            )
+
             self.update_status()
+
         except Exception as exc:
             self.log_message(f"ERROR connecting to SCN6: {exc}")
             self.driver = None
-            self.set_status("Connection failed", "$error")
+            self.set_status("Connection failed", "red")
+
 
     def close_driver(self):
         if self.driver is None:
