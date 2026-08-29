@@ -595,15 +595,21 @@ class TmbsController:
     def initialize(self):
         """
         Establish communication and discover connected axes.
+
+        TMBSCOM initialization is asynchronous. init_tmbs_config()
+        may return SIO_ERROR (0) while the communication state is
+        TMBS_OPENING (3). Keep polling until TMBS_RUNNING (4).
         """
         axis_array = (ctypes.c_int * MAX_AXIS_COUNT)(
             *([-1] * MAX_AXIS_COUNT)
         )
+
         history = []
-        # TMBSCOM initialization is asynchronous on the SCN6.
-        # Wait for TMBS_RUNNING here so the operator does not
-        # have to type "init" repeatedly.
-        for _ in range(200):
+
+        POLL_DELAY = 0.005       # 5 ms
+        MAX_POLLS = 200          # 1 second maximum
+
+        for _ in range(MAX_POLLS):
             result = self.init_tmbs_config(
                 COM_PORT.encode("ascii"),
                 BAUD_CODE,
@@ -612,22 +618,29 @@ class TmbsController:
                 int(AUTOMATIC),
                 axis_array,
             )
+
             history.append(result)
+
             current_state = self.communication_state()
-            if result == SIO_DONE and current_state == 4:
+
+            # Initialization is complete when TMBSCOM reaches RUNNING.
+            if current_state == 4:
+                self.axes_info = list(axis_array)
+                self.initialized = True
+                self.refresh_connected_axes()
+                return history
+
+            # Fatal initialization errors.
+            if current_state in (-12, 2):
                 break
-            if current_state in (-12, 3):
-                time.sleep(0.05)
-            else:
-                time.sleep(0.01)
+
+            # TMBS_OPENING (3), or another transient state.
+            time.sleep(POLL_DELAY)
+
         self.axes_info = list(axis_array)
-        self.initialized = (
-            bool(history)
-            and history[-1] == SIO_DONE
-        )
-        if self.initialized:
-            self.refresh_connected_axes()
+        self.initialized = False
         return history
+
     def refresh_connected_axes(self):
         """
         Ask TMBSCOM for the actual axis information.
