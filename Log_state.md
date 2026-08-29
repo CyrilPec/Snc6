@@ -1087,6 +1087,17 @@ Two SCN6 controllers may share one RS485 bus, but their
 axis addresses must be unique.
 
 ## CURRENT TASK
+## Initialization Polling
+
+Status: FIXED in d224083.
+
+The initialization routine now:
+- polls TMBSCOM every 5 ms
+- allows up to 200 polls (1 second)
+- reads communication state after each initialization call
+- considers initialization successful when state reaches 4 (TMBS_RUNNING)
+- does not require the intermediate init result to be SIO_DONE
+- treats states -12 and 2 as initialization errors
 
 Fix v21 initialization.
 
@@ -1198,3 +1209,5 @@ CLI = engineering/test interface.
 TUI = operator interface.
 
 Both must use the same proven SCN6 driver functionality. Any new SCN6 operation should first be proven through the driver/CLI and then exposed safely through the TUI.
+
+
