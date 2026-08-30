@@ -1,14 +1,106 @@
-# SCN6 TUI Period 2
-Modular TUI split from the SCN6 Textual interface.
+                 SimulIDE 2
+                     │
+                     ▼
+                Arduino Mega
+                     │
+                  Serial
+                     │
+                     ▼
+             ┌───────────────┐
+             │ scn6_server.py│
+             └───────┬───────┘
+                     │
+                   Lark
+                     │
+                     ▼
+              GCodeCommand
+                     │
+                     ▼
+             GCodeInterpreter
+                     │
+                     ▼
+                SCN6Driver
+                     │
+                     ▼
+              TmbsController
+                     │
+                     ▼
+               scn6_dll.py
+                     │
+                     ▼
+                 TMBSCOM
+                     │
+                     ▼
+                    SCN6
 
-Files:
-- app.py       main application/event routing
-- ui.py        widgets/layout
-- connection.py connection lifecycle
-- status.py    status polling/display
-- motion.py    motion/servo/alarm/home operations
-- confirm.py   physical-action confirmation
-- run_tui.py   launcher
+init_tmbs_config()
+        ↓
+TMBS_OPENING
+        ↓
+poll
+        ↓
+TMBS_RUNNING
+        ↓
+discover axes
 
-Keep scn6_driver.py and scn6_dll.py from the existing SCN6 project beside
-this package. This TUI does not construct raw Termi-BUS frames.
+For the current Dll-changed-and-update branch, let's keep the architecture simpler:
+
+SimulIDE Arduino Mega
+        │
+        │ Serial / COM
+        ▼
+ scn6_server.py
+        │
+        ├── Lark G-code parser
+        ├── G-code interpreter/state
+        │
+        ▼
+   SCN6Driver
+        │
+        ▼
+ TmbsController
+        │
+        ▼
+  scn6_dll.py
+        │
+        ▼
+     TMBSCOM
+        │
+        ▼
+      SCN6
+
+So no machine.py for now.
+
+Project structure
+I'd use:
+
+Snc6/
+├── scn6_server.py          # serial server + orchestration
+├── scn6_driver.py          # existing SCN6 facade
+├── scn6_dll.py             # existing DLL/TMBSCOM layer
+│
+└── gcode/
+    ├── __init__.py
+    ├── grammar.lark
+    ├── commands.py
+    ├── parser.py
+    └── interpreter.py
+
+The reason is that scn6_driver.py already is our machine/hardware abstraction. Adding another machine.py at this stage would mostly duplicate it.
+
+Later, if we introduce multiple backends:
+
+                 G-code
+                    │
+                    ▼
+              Interpreter
+                    │
+                    ▼
+             MachineBackend
+              /          \
+             ▼            ▼
+       SCN6Driver      Simulator
+
+then a machine/ package makes sense. Not yet.
+
+So: delete machine.py and don't create it again for the first version.
