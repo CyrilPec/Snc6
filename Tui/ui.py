@@ -82,10 +82,11 @@ class TUIWidgetsMixin:
         value = self.query_one("#axis_select", Select).value
         return 0 if value is Select.BLANK else int(value)
 
-    def set_status(self, text, color="$warning"):
+    def set_status(self, text, color="yellow"):
         w = self.query_one("#status", Static)
         w.update(text)
         w.styles.color = color
+
 
     def log_message(self, message):
         import time
