@@ -1,0 +1,46 @@
+start: command
+
+?command: motion
+         | mode
+         | machine
+         | status
+         | comment
+         | empty
+
+motion: GCODE AXES*
+      | GCODE AXES* FEED
+
+mode: G90
+    | G91
+
+machine: M3
+        | M5
+        | G28
+        | M17
+        | M18
+        | M999
+
+status: M114
+
+comment: ";" /[^\r\n]*/
+
+empty:
+
+AXES: /[XYZABC][-+]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))/
+FEED: /F[-+]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))/
+
+GCODE: "G0" | "G00" | "G1" | "G01"
+
+G90: "G90"
+G91: "G91"
+
+M3: "M3"
+M5: "M5"
+M17: "M17"
+M18: "M18"
+M999: "M999"
+M114: "M114"
+G28: "G28"
+
+%import common.WS
+%ignore WS
