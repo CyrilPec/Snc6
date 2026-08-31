@@ -171,7 +171,9 @@ class SCN6ValueSocket(NodeSocket):
         layout.label(
             text=text
         )
-
+    def draw_color(self, context, node):
+        return (0.5, 0.5, 0.5, 1.0)
+        
     @classmethod
     def draw_color_simple(cls):
 
