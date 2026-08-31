@@ -268,11 +268,11 @@ class SCN6AxisNode(Node):
     )
 
 
-    source: EnumProperty(
+     source: EnumProperty(
         name="Source",
         description="Object transform component",
         items=source_items,
-        default="LOC_X",
+        default=0,
     )
 
 
