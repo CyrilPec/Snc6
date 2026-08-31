@@ -1042,16 +1042,12 @@ def scn6_trajectory_timer():
 # MENU
 # ============================================================================
 
-def scn6_node_menu(
-    self,
-    context,
-):
-
+def scn6_node_menu(self, context):
     self.layout.operator(
-        SCN6AxisNode.bl_idname,
+        "node.add_node",
         text="SCN6 Axis",
         icon="DRIVER",
-    )
+    ).type = SCN6AxisNode.bl_idname
 
 
 # ============================================================================
