@@ -8,20 +8,17 @@ bl_info = {
     "category": "Node",
 }
 
-
 from . import bridge_node
-from . import scn6_node
+from . import scn6_node_v4
 
 
 def register():
-
     bridge_node.register()
-    scn6_node.register()
+    scn6_node_v4.register()
 
 
 def unregister():
-
-    scn6_node.unregister()
+    scn6_node_v4.unregister()
     bridge_node.unregister()
 
 
