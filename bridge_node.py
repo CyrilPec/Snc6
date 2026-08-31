@@ -82,7 +82,7 @@ import time
 # 32-bit Python used to run scn6_server.py
 # ---------------------------------------------------------------------------
 
-SCN6_PYTHON = r"C:\Users\DarkLight\AppData\Local\Programs\Python\Python311-32\python.exe"
+SCN6_PYTHON = r"C:\Users\DarkLight\AppData\Local\Programs\Python\Python312-32\python.exe"
 
 
 # ---------------------------------------------------------------------------
