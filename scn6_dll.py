@@ -592,13 +592,16 @@ class TmbsController:
     # --------------------------------------------------------
     def communication_state(self):
         return self.get_tmbs_state()
+    
     def initialize(self):
         """
         Establish communication and discover connected axes.
 
-        TMBSCOM initialization is asynchronous. init_tmbs_config()
-        may return SIO_ERROR (0) while the communication state is
-        TMBS_OPENING (3). Keep polling until TMBS_RUNNING (4).
+        TMBSCOM initialization is asynchronous. The first
+        init_tmbs_config() call may leave communication in
+        TMBS_OPENING (3). A second initialization attempt
+        is required after TMBSCOM has had time to complete
+        its startup sequence.
         """
         axis_array = (ctypes.c_int * MAX_AXIS_COUNT)(
             *([-1] * MAX_AXIS_COUNT)
@@ -606,40 +609,88 @@ class TmbsController:
 
         history = []
 
-        POLL_DELAY = 0.005       # 5 ms
-        MAX_POLLS = 200          # 1 second maximum
+        # ------------------------------------------------------------
+        # First initialization attempt
+        # ------------------------------------------------------------
+        result = self.init_tmbs_config(
+            COM_PORT.encode("ascii"),
+            BAUD_CODE,
+            NRT,
+            int(RESET),
+            int(AUTOMATIC),
+            axis_array,
+        )
+
+        history.append(result)
+
+        current_state = self.communication_state()
+
+        if current_state == 4:
+            self.axes_info = list(axis_array)
+            self.initialized = True
+            self.refresh_connected_axes()
+            return history
+
+        # Fatal initialization errors.
+        if current_state in (-12, 2):
+            self.axes_info = list(axis_array)
+            self.initialized = False
+            return history
+
+        # ------------------------------------------------------------
+        # TMBSCOM needs time to complete the asynchronous opening.
+        # The working CLI requires a separate initialization call
+        # after this delay.
+        # ------------------------------------------------------------
+        time.sleep(5.0)
+
+        # ------------------------------------------------------------
+        # Second initialization attempt
+        # ------------------------------------------------------------
+        result = self.init_tmbs_config(
+            COM_PORT.encode("ascii"),
+            BAUD_CODE,
+            NRT,
+            int(RESET),
+            int(AUTOMATIC),
+            axis_array,
+        )
+
+        history.append(result)
+
+        current_state = self.communication_state()
+
+        if current_state == 4:
+            self.axes_info = list(axis_array)
+            self.initialized = True
+            self.refresh_connected_axes()
+            return history
+
+        # ------------------------------------------------------------
+        # Final polling after the second initialization attempt.
+        # ------------------------------------------------------------
+        POLL_DELAY = 0.005
+        MAX_POLLS = 200
 
         for _ in range(MAX_POLLS):
-            result = self.init_tmbs_config(
-                COM_PORT.encode("ascii"),
-                BAUD_CODE,
-                NRT,
-                int(RESET),
-                int(AUTOMATIC),
-                axis_array,
-            )
-
-            history.append(result)
-
             current_state = self.communication_state()
 
-            # Initialization is complete when TMBSCOM reaches RUNNING.
             if current_state == 4:
                 self.axes_info = list(axis_array)
                 self.initialized = True
                 self.refresh_connected_axes()
                 return history
 
-            # Fatal initialization errors.
             if current_state in (-12, 2):
                 break
 
-            # TMBS_OPENING (3), or another transient state.
             time.sleep(POLL_DELAY)
 
         self.axes_info = list(axis_array)
         self.initialized = False
+
         return history
+
 
     def refresh_connected_axes(self):
         """
