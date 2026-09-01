@@ -20,5 +20,3 @@ def register():
 def unregister():
     scn6_node_v4.unregister()
     bridge_node.unregister()
-
-

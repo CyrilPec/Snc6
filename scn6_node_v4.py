@@ -120,6 +120,7 @@ from __future__ import annotations
 
 import bpy
 
+from .bridge_node import get_bridge
 
 from bpy.types import (
     Node,
@@ -238,6 +239,41 @@ def source_items(
 # ============================================================================
 # SCN6 AXIS NODE
 # ============================================================================
+class SCN6_OT_Initialize(
+    bpy.types.Operator
+):
+
+    bl_idname = "scn6.initialize"
+
+    bl_label = "Initialize SCN6"
+
+    bl_description = (
+        "Start the SCN6 bridge and initialize the SCN6 actuator"
+    )
+
+    def execute(
+        self,
+        context,
+    ):
+
+        bridge = get_bridge()
+
+        if bridge.initialize():
+
+            self.report(
+                {"INFO"},
+                "SCN6 initialization started.",
+            )
+
+        else:
+
+            self.report(
+                {"ERROR"},
+                bridge.last_error,
+            )
+
+        return {"FINISHED"}
+
 
 class SCN6AxisNode(Node):
 
@@ -770,12 +806,58 @@ class SCN6AxisNode(Node):
             text="Max",
         )
 
+        # --------------------------------------------------------------
+        # SCN6 initialization
+        # --------------------------------------------------------------
+
+        box = layout.box()
+
+        box.label(
+            text="SCN6"
+        )
+
+        try:
+
+            bridge = get_bridge()
+
+            if bridge.initializing:
+
+                box.operator(
+                    "scn6.initialize",
+                    text="Initializing...",
+                    icon="TIME",
+                )
+
+            elif bridge.connected:
+
+                box.label(
+                    text="SCN6 Ready",
+                    icon="CHECKMARK",
+                )
+
+            else:
+
+                box.operator(
+                    "scn6.initialize",
+                    text="Initialize SCN6",
+                    icon="LINKED",
+                )
+
+        except Exception:
+
+            box.operator(
+                "scn6.initialize",
+                text="Initialize SCN6",
+                icon="LINKED",
+            )
+
 
         # --------------------------------------------------------------
         # Safety
         # --------------------------------------------------------------
 
         box = layout.box()
+
 
         box.label(
             text="Safety"
@@ -1061,6 +1143,8 @@ classes = (
     SCN6AxisNode,
 
     SCN6NodeTree,
+    
+    SCN6_OT_Initialize,
 
 )
 

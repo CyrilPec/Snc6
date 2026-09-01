@@ -1,0 +1,781 @@
+SCN6 PROJECT — CONTINUATION LOG
+Project
+
+Windows SCN6 / TMBSCOM actuator control.
+
+Architecture:
+
+Blender 3.6 (64-bit)
+    |
+    | bridge_node.py
+    | JSON Lines
+    v
+scn6_server.py
+    | 32-bit Python 3.12
+    v
+scn6_driver.py
+    v
+scn6_dll.py
+    v
+Tmbscom.DLL
+    v
+SCN6 actuator
+
+
+No raw Termi-BUS serial frames are constructed. We use the existing Tmbscom.DLL API.
+
+Hardware / Python configuration
+
+SCN6:
+
+[communication]
+port = COM6
+baud = 115200
+nrt = 2
+reset = false
+automatic = false
+
+[driver]
+axis_min = 0
+axis_max = F
+
+
+32-bit Python:
+
+C:\Users\DarkLight\AppData\Local\Programs\Python\Python312-32\python.exe
+
+
+DLL:
+
+C:\SCN6\Tmbscom.DLL
+
+
+SCN6 server:
+
+C:\SCN6\scn6_server.py
+
+
+Blender addon:
+
+C:\Users\DarkLight\AppData\Roaming\Blender Foundation\Blender\3.6\scripts\addons\scn6_nodes
+
+Repository state / relevant files
+
+SCN6 repo commit previously checked:
+
+f21b27c
+
+
+Blender addon bridge repo commit previously checked:
+
+67c57f1
+
+
+Important files:
+
+C:\SCN6\
+    Scn6.ini
+    scn6_config.py
+    scn6_dll.py
+    scn6_driver.py
+    scn6_server.py
+    Tmbscom.DLL
+
+Blender addon:
+    bridge_node.py
+    scn6_node_v4.py
+    __init__.py
+
+TMBSCOM initialization discovery
+
+Original behavior:
+
+init #1
+state = TMBS_OPENING (3)
+
+init #2
+state = TMBS_RUNNING (4)
+initialized = True
+
+
+Waiting longer between state checks did not solve it.
+
+We concluded the DLL/hardware behavior requires a second initialization call.
+
+The working server behavior was verified:
+
+[SCN6_SERVER] starting
+[SCN6_SERVER] FIRST initialization...
+[SCN6_SERVER] First init finished: state=3
+[SCN6_SERVER] Waiting 5 seconds before retry...
+[SCN6_SERVER] SECOND initialization...
+{"id":1,"ok":true,"result":{"connected":true,"already_connected":false,"communication_state":4,"axes":[0],"initialization_history":[1]}}
+[SCN6_SERVER] stopped
+
+
+Later after DLL changes, verified again:
+
+[SCN6_SERVER] starting
+{"id":1,"ok":true,"result":{"connected":true,"already_connected":false,"communication_state":4,"axes":[0],"initialization_history":[0,0]}}
+[SCN6_SERVER] stopped
+
+
+CLI also works:
+
+SCN6> init
+
+final init result : 0
+communication state: 4 (TMBS_RUNNING)
+initialized       : True
+
+Connected axes:
+axis 0 ( 0) : AVAILABLE raw=0
+
+
+So scn6_dll.py currently has working two-call initialization behavior.
+
+Current scn6_dll.py state
+
+initialize() currently handles asynchronous TMBSCOM startup and reaches RUNNING.
+
+Previously it was polling repeatedly, but we changed the logic so the practical behavior is two initialization calls.
+
+DO NOT change scn6_dll.py unless new testing shows a real problem there.
+
+The hardware currently reports:
+
+axis 0 = available
+axes 1..F = unavailable
+
+
+Axis 0 status test:
+
+get_status : 1 (0x00000001)
+servo      : 1
+run        : 1
+alarm      : 0
+origin     : 1
+pfin       : 0
+raw bytes  : A0 80 00 2F
+PNOW       : 9
+
+Current Blender architecture
+
+bridge_node.py starts the 32-bit server:
+
+SCN6_PYTHON =
+C:\Users\DarkLight\AppData\Local\Programs\Python\Python312-32\python.exe
+
+SCN6_SERVER =
+C:\SCN6\scn6_server.py
+
+
+It uses:
+
+subprocess.Popen(
+    [
+        SCN6_PYTHON,
+        SCN6_SERVER,
+    ],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    bufsize=1,
+    universal_newlines=True,
+)
+
+
+There is a stdout reader thread and stderr reader thread.
+
+Blender timer:
+
+BRIDGE_RATE = 0.05
+
+
+calls:
+
+bridge.process_responses()
+bridge.flush_moves()
+
+
+and polls active axis positions.
+
+Current problem being solved
+
+After starting Blender, the bridge/server may be running but SCN6 is NOT automatically initialized.
+
+If an SCN6 node is armed before connection, the bridge sends move commands and gets:
+
+[SCN6 BRIDGE] Server error: SCN6 driver is not connected.
+[SCN6 BRIDGE] SERVER: [SCN6_SERVER] move failed: SCN6 driver is not connected.
+
+
+We decided the Blender node should have an explicit initialization button.
+
+Desired UI flow:
+
+Blender node
+    |
+    | Initialize SCN6
+    v
+start bridge
+    |
+    v
+start scn6_server.py
+    |
+    v
+send connect
+    |
+    v
+SCN6Driver.initialize()
+    |
+    v
+TMBSCOM initialization
+    |
+    v
+RUNNING
+    |
+    v
+SCN6 Ready
+    |
+    v
+ARM
+    |
+    v
+move commands
+
+
+The ARM control remains a separate safety mechanism.
+
+Safety / motion logic
+
+scn6_node_v4.py has:
+
+enabled: BoolProperty(
+    name="Enabled",
+    description="Enable this node",
+    default=True,
+)
+
+armed: BoolProperty(
+    name="ARM",
+    description="Allow this node to command the actuator",
+    default=False,
+)
+
+
+update_command() returns immediately if either:
+
+if not self.enabled:
+    return
+
+if not self.armed:
+    return
+
+
+When armed, it registers the axis and calls:
+
+bridge.queue_move(
+    axis=int(self.axis),
+    position=command,
+)
+
+
+The global trajectory timer runs at 50 Hz:
+
+return 0.02
+
+IMPORTANT BUG FOUND
+
+In bridge_node.py, queue_move() was shown as:
+
+        self.command_queue[
+        ] = position
+
+
+This is wrong.
+
+It should be:
+
+        self.command_queue[
+            axis
+        ] = position
+
+
+because each axis needs its own latest command.
+
+This should be fixed before relying on multi-axis motion.
+
+Initialization UI change currently being implemented
+
+We decided to show:
+
+SCN6
+[ Initialize SCN6 ]
+
+
+before initialization.
+
+While waiting:
+
+SCN6
+[ Initializing... ]
+
+
+After actual server response:
+
+SCN6
+✓ SCN6 Ready
+
+
+The UI must reflect actual connection state, not merely "command sent".
+
+bridge_node.py intended changes
+
+In SCN6Bridge.__init__() add:
+
+        self.initializing = False
+
+
+near:
+
+        self.connected = False
+        self.server_connected = False
+
+
+The intended initialization method is:
+
+    def initialize(self):
+
+        """
+        Start the SCN6 server and begin SCN6 initialization.
+
+        The actual TMBSCOM initialization is performed by
+        scn6_server.py / scn6_dll.py.
+
+        The final state is received asynchronously through
+        the normal JSON response.
+        """
+
+        if not self.start():
+
+            return False
+
+        self.initializing = True
+
+        self.connected = False
+
+        self.server_connected = False
+
+        self.last_error = ""
+
+        request_id = self.send({
+            "cmd": "connect",
+        })
+
+        if request_id is None:
+
+            self.initializing = False
+
+            return False
+
+        return True
+
+
+In _handle_response(), successful connection should do:
+
+            if result.get(
+                "connected"
+            ) is True:
+
+                self.server_connected = True
+
+                self.connected = True
+
+                self.initializing = False
+
+                self.last_error = ""
+
+
+Error handling should clear initialization:
+
+            self.last_error = str(
+                error
+            )
+
+            self.initializing = False
+
+            self.connected = False
+
+            self.server_connected = False
+
+Current error
+
+After applying the above changes, Blender failed to load the addon:
+
+Traceback (most recent call last):
+  File "C:\Program Files\Blender Foundation\Blender 3.6\3.6\scripts\modules\addon_utils.py", line 333, in enable
+    mod = __import__(module_name)
+  File "C:\Users\DarkLight\AppData\Roaming\Blender Foundation\Blender\3.6\scripts\addons\scn6_nodes\__init__.py", line 11, in <module>
+    from . import bridge_node
+  File "C:\Users\DarkLight\AppData\Roaming\Blender Foundation\Blender 3.6\scripts\addons\scn6_nodes\bridge_node.py", line 629
+    def initialize(self):
+                         ^
+IndentationError: unindent does not match any outer indentation level
+
+
+This is a Python indentation error only.
+
+bridge_node.py methods inside SCN6Bridge must have exactly 4 spaces before def.
+
+The initialization method should therefore be:
+
+    def initialize(self):
+
+
+not:
+
+def initialize(self):
+
+
+and not a mixture of tabs/spaces.
+
+Recommended syntax test:
+
+& "C:\Users\DarkLight\AppData\Local\Programs\Python\Python312-32\python.exe" -m py_compile "C:\Users\DarkLight\AppData\Roaming\Blender Foundation\Blender\3.6\scripts\addons\scn6_nodes\bridge_node.py"
+
+
+No output means syntax/indentation is valid.
+
+scn6_node_v4.py intended initialization operator
+
+Add:
+
+class SCN6_OT_Initialize(
+    bpy.types.Operator
+):
+
+    bl_idname = "scn6.initialize"
+
+    bl_label = "Initialize SCN6"
+
+    bl_description = (
+        "Start the SCN6 bridge and initialize the SCN6 actuator"
+    )
+
+    def execute(
+        self,
+        context,
+    ):
+
+        bridge = get_bridge()
+
+        if bridge.initialize():
+
+            self.report(
+                {"INFO"},
+                "SCN6 initialization started.",
+            )
+
+        else:
+
+            self.report(
+                {"ERROR"},
+                bridge.last_error,
+            )
+
+        return {"FINISHED"}
+
+
+Register it in:
+
+classes = (
+
+    SCN6ValueSocket,
+
+    SCN6AxisNode,
+
+    SCN6NodeTree,
+
+    SCN6_OT_Initialize,
+
+)
+
+Intended node UI
+
+Before Safety section in draw_buttons():
+
+        # --------------------------------------------------------------
+        # SCN6 initialization
+        # --------------------------------------------------------------
+
+        box = layout.box()
+
+        box.label(
+            text="SCN6"
+        )
+
+        try:
+
+            bridge = get_bridge()
+
+            if bridge.initializing:
+
+                box.operator(
+                    "scn6.initialize",
+                    text="Initializing...",
+                    icon="TIME",
+                )
+
+            elif bridge.connected:
+
+                box.label(
+                    text="SCN6 Ready",
+                    icon="CHECKMARK",
+                )
+
+            else:
+
+                box.operator(
+                    "scn6.initialize",
+                    text="Initialize SCN6",
+                    icon="LINKED",
+                )
+
+        except Exception:
+
+            box.operator(
+                "scn6.initialize",
+                text="Initialize SCN6",
+                icon="LINKED",
+            )
+
+
+Then existing Safety section follows.
+
+Important design decision
+
+Do NOT make scn6_node_v4.py directly communicate with the server.
+
+Keep architecture:
+
+scn6_node_v4.py
+    ↓
+bridge_node.py
+    ↓
+scn6_server.py
+    ↓
+scn6_driver.py
+    ↓
+scn6_dll.py
+    ↓
+Tmbscom.DLL
+
+
+The node only requests initialization through get_bridge().
+
+Current next step
+
+First fix the bridge_node.py indentation error.
+
+Then run:
+
+& "C:\Users\DarkLight\AppData\Local\Programs\Python\Python312-32\python.exe" -m py_compile "C:\Users\DarkLight\AppData\Roaming\Blender Foundation\Blender\3.6\scripts\addons\scn6_nodes\bridge_node.py"
+
+
+Then restart Blender and verify:
+
+Add/load SCN6 node.
+UI shows Initialize SCN6.
+Click it.
+UI changes to Initializing....
+Server performs TMBSCOM initialization.
+Actual JSON response returns connected=true.
+UI changes to SCN6 Ready.
+Only after that, enable/ARM the node and test movement.
+
+Do not change DLL initialization again unless this test reveals a DLL-layer problem.
+
+SCN6 — continuation log
+Current project: C:\SCN6 + Blender SCN6 addon.
+
+Architecture
+Blender 3.6 (64-bit)
+    ↓
+scn6_nodes / bridge_node.py
+    ↓ JSON Lines
+32-bit Python 3.12
+    ↓
+scn6_server.py
+    ↓
+scn6_driver.py
+    ↓
+scn6_dll.py
+    ↓
+Tmbscom.DLL
+    ↓
+SCN6 actuator
+
+DLL initialization
+scn6_dll.py was changed so initialize() polls TMBSCOM until state 4 (TMBS_RUNNING).
+
+Working CLI test:
+
+SCN6> init
+
+## INITIALIZE TMBSCOM
+---------------------
+COM port       : COM6
+baud           : 115200
+baud code      : 0x14
+NRT            : 2
+RESET          : False
+AUTOMATIC      : False
+
+final init result : 0
+communication state: 4 (TMBS_RUNNING)
+initialized       : True
+
+Connected axes:
+axis 0 : AVAILABLE raw=0
+
+Working direct server test:
+
+C:\SCN6> '{"id":1,"cmd":"connect"}' | & "C:\Users\DarkLight\AppData\Local\Programs\Python\Python312-32\python.exe" "C:\SCN6\scn6_server.py"
+
+[SCN6_SERVER] starting
+{"id":1,"ok":true,"result":{"connected":true,"already_connected":false,"communication_state":4,"axes":[0],"initialization_history":[0,0]}}
+[SCN6_SERVER] stopped
+
+So DLL + driver + server initialization works from PowerShell.
+
+Important Blender-side files
+Addon contains:
+
+scn6_nodes\
+    __init__.py
+    bridge_node.py
+    scn6_node_v4.py
+
+bridge_node.py launches:
+
+C:\Users\DarkLight\AppData\Local\Programs\Python\Python312-32\python.exe
+
+with:
+
+C:\SCN6\scn6_server.py
+
+It uses stdin/stdout JSON and a Blender timer.
+
+scn6_node_v4.py has:
+
+Enabled
+ARM
+source/object mapping
+scale/offset
+min/max
+trajectory timer at 50 Hz
+get_bridge()
+update_command()
+Motion is only queued when:
+
+self.enabled
+
+and:
+
+self.armed
+
+are both true.
+
+Recent errors fixed
+First:
+
+IndentationError: unindent does not match any outer indentation level
+
+This was in bridge_node.py.
+
+Then:
+
+SyntaxError: from __future__ imports must occur at the beginning of the file
+
+Fixed by moving:
+
+from __future__ import annotations
+
+above normal imports.
+
+Then:
+
+ModuleNotFoundError: No module named 'bridge_node'
+
+Fixed in scn6_node_v4.py by changing:
+
+from bridge_node import get_bridge
+
+to:
+
+from .bridge_node import get_bridge
+
+Current state
+Blender now successfully loads the addon:
+
+Read prefs: "C:\Users\DarkLight\AppData\Roaming\Blender Foundation\Blender\3.6\config\userpref.blend"
+[SCN6] bridge_node.py registered.
+[SCN6] scn6_node_v4 registered.
+[SCN6 BRIDGE] scn6_server.py started.
+Info: SCN6 initialization started.
+
+[SCN6 BRIDGE] SERVER: [SCN6_SERVER] starting
+
+Then nothing happens.
+
+The UI remains at Initializing… instead of reaching SCN6 Ready.
+
+Intended behavior
+We want a Blender node/button sequence:
+
+Initialize
+    ↓
+start bridge
+    ↓
+start scn6_server.py
+    ↓
+send connect
+    ↓
+initialize TMBSCOM
+    ↓
+wait until communication_state == 4
+    ↓
+SCN6 Ready
+    ↓
+ARM node
+    ↓
+send move commands
+
+The direct server already proves that the connect command can return successfully.
+
+Next investigation
+Do not modify scn6_dll.py yet.
+
+Focus on the Blender-side bridge_node.py initialization flow.
+
+Specifically investigate why:
+
+[SCN6 BRIDGE] scn6_server.py started.
+[SCN6 BRIDGE] SERVER: [SCN6_SERVER] starting
+
+is followed by nothing.
+
+Likely areas:
+
+initialize() method recently added to bridge_node.py
+connect() / initialize() request flow
+whether the JSON connect request is actually being sent
+whether the response reader is receiving the server response
+whether the Blender timer is processing responses
+whether the UI state is updated from the response
+whether the server is blocked waiting for stdin
+Last known good direct server: initialization returns state 4.
+
+Last known Blender output: server starts, but no further response.

@@ -1,0 +1,17 @@
+import importlib
+import SCN6_Controller
+
+# Unregister the currently loaded classes
+SCN6_Controller.unregister()
+
+# Reload the individual modules
+importlib.reload(SCN6_Controller.bridge_node)
+importlib.reload(SCN6_Controller.scn6_node_v4)
+
+# Reload the main addon module
+importlib.reload(SCN6_Controller)
+
+# Register the updated classes
+SCN6_Controller.register()
+
+print("SCN6 Controller reloaded!")

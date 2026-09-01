@@ -165,6 +165,8 @@ class SCN6Bridge:
         self.connected = False
 
         self.server_connected = False
+        
+        self.initializing = False
 
         self.last_error = ""
 
@@ -545,12 +547,19 @@ class SCN6Bridge:
                 error
             )
 
+            self.initializing = False
+
+            self.connected = False
+
+            self.server_connected = False
+
             self.log(
                 "Server error: "
                 + self.last_error
             )
 
             return
+
 
         result = response.get(
             "result"
@@ -616,6 +625,44 @@ class SCN6Bridge:
         })
 
         return request_id is not None
+
+    def initialize(self):
+
+        """
+        Start the SCN6 server and begin SCN6 initialization.
+
+        The actual TMBSCOM initialization is performed by
+        scn6_server.py / scn6_dll.py.
+
+        The final state is received asynchronously through
+        the normal JSON response.
+        """
+
+        if not self.start():
+
+            return False
+
+        self.initializing = True
+
+        self.connected = False
+
+        self.server_connected = False
+
+        self.last_error = ""
+
+        request_id = self.send({
+            "cmd": "connect",
+        })
+
+        if request_id is None:
+
+            self.initializing = False
+
+            return False
+
+        return True
+
+
 
     # ======================================================================
     # DISCONNECT
@@ -986,7 +1033,7 @@ def scn6_bridge_timer():
         # 3. Poll actual position for active axes.
         # --------------------------------------------------------------
 
-        if bridge.running:
+        if bridge.running and bridge.connected:
 
             for axis in list(
                 bridge.active_axes
