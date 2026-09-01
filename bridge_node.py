@@ -613,6 +613,10 @@ class SCN6Bridge:
                 self.server_connected = True
 
                 self.connected = True
+                
+                self.initializing = False
+
+                self.last_error = ""
 
     # ======================================================================
     # CONNECT
