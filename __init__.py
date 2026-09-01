@@ -22,5 +22,3 @@ def unregister():
     bridge_node.unregister()
 
 
-if __name__ == "__main__":
-    register()
